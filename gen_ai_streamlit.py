@@ -36,7 +36,9 @@ if not api_key:
 
 client = OpenAI(
     base_url="https://integrate.api.nvidia.com/v1",
-    api_key=api_key
+    api_key=api_key,
+    timeout=60.0,
+    max_retries=0
 )
 
 
@@ -80,7 +82,10 @@ with st.sidebar:
 
     st.title("💬 Chat History")
 
-    # New chat
+    # --------------------------------------------------------
+    # NEW CHAT
+    # --------------------------------------------------------
+
     if st.button(
         "➕ New Chat",
         use_container_width=True
@@ -99,7 +104,10 @@ with st.sidebar:
 
     st.divider()
 
-    # Chat history
+    # --------------------------------------------------------
+    # CHAT HISTORY
+    # --------------------------------------------------------
+
     for chat_id, chat_data in st.session_state.chats.items():
 
         if chat_id == st.session_state.current_chat_id:
@@ -154,7 +162,7 @@ for message in messages:
 def get_deepseek_response(chat_messages):
 
     # --------------------------------------------------------
-    # NVIDIA API messages
+    # API MESSAGES
     # --------------------------------------------------------
 
     api_messages = [
@@ -163,7 +171,8 @@ def get_deepseek_response(chat_messages):
             "content": (
                 "You are Pushkar's AI assistant. "
                 "Give clear, helpful and accurate answers. "
-                "Use simple language when explaining technical topics."
+                "Use simple language when explaining technical topics. "
+                "Do not unnecessarily explain your reasoning."
             )
         }
     ]
@@ -188,18 +197,23 @@ def get_deepseek_response(chat_messages):
 
             response = client.chat.completions.create(
 
+                # Correct NVIDIA model
                 model=MODEL,
 
                 messages=api_messages,
 
+                # NVIDIA / DeepSeek recommended values
                 temperature=1.0,
-
                 top_p=0.95,
 
-                max_tokens=4096,
+                # Keep normal chatbot responses short
+                max_tokens=1024,
 
+                # IMPORTANT:
+                # Disable DeepSeek thinking
                 reasoning_effort="none",
 
+                # Normal non-streaming response
                 stream=False
             )
 
@@ -217,11 +231,14 @@ def get_deepseek_response(chat_messages):
             return "⚠️ DeepSeek returned an empty response."
 
 
+        # ----------------------------------------------------
+        # EXCEPTION
+        # ----------------------------------------------------
+
         except Exception as e:
 
             error = str(e)
 
-            # Print actual error in terminal
             print("\n" + "=" * 60)
             print("NVIDIA API ERROR")
             print("=" * 60)
@@ -230,7 +247,29 @@ def get_deepseek_response(chat_messages):
 
 
             # ------------------------------------------------
-            # TEMPORARY SERVER ERROR
+            # TIMEOUT
+            # ------------------------------------------------
+
+            if (
+                "timeout" in error.lower()
+                or "timed out" in error.lower()
+            ):
+
+                if attempt < 2:
+
+                    time.sleep(2)
+
+                    continue
+
+                return (
+                    "⚠️ **Request Timed Out**\n\n"
+                    "NVIDIA took too long to respond. "
+                    "Please try again."
+                )
+
+
+            # ------------------------------------------------
+            # SERVER ERROR
             # ------------------------------------------------
 
             if any(
@@ -248,7 +287,7 @@ def get_deepseek_response(chat_messages):
 
                 return (
                     "⚠️ **NVIDIA Server Busy**\n\n"
-                    "The DeepSeek server is temporarily "
+                    "The NVIDIA server is temporarily "
                     "unavailable. Please try again."
                 )
 
@@ -271,7 +310,7 @@ def get_deepseek_response(chat_messages):
 
 
             # ------------------------------------------------
-            # AUTHENTICATION ERROR
+            # AUTHENTICATION
             # ------------------------------------------------
 
             if (
@@ -288,6 +327,22 @@ def get_deepseek_response(chat_messages):
 
 
             # ------------------------------------------------
+            # MODEL NOT FOUND / RETIRED
+            # ------------------------------------------------
+
+            if (
+                "404" in error
+                or "410" in error
+            ):
+
+                return (
+                    "⚠️ **Model Unavailable**\n\n"
+                    f"The NVIDIA model `{MODEL}` "
+                    "is unavailable or has been retired."
+                )
+
+
+            # ------------------------------------------------
             # PAYMENT / AVAILABILITY
             # ------------------------------------------------
 
@@ -298,9 +353,20 @@ def get_deepseek_response(chat_messages):
 
                 return (
                     "⚠️ **Model Availability Error**\n\n"
-                    "The NVIDIA Free Endpoint for this model "
-                    "may not be available. Check the model "
-                    "availability on NVIDIA NIM."
+                    "The NVIDIA Free Endpoint may "
+                    "currently be unavailable."
+                )
+
+
+            # ------------------------------------------------
+            # VALIDATION ERROR
+            # ------------------------------------------------
+
+            if "422" in error:
+
+                return (
+                    "⚠️ **Request Validation Error**\n\n"
+                    f"```text\n{error}\n```"
                 )
 
 
@@ -368,7 +434,7 @@ if prompt:
 
     with st.chat_message("assistant"):
 
-        with st.spinner("DeepSeek is thinking..."):
+        with st.spinner("DeepSeek is responding..."):
 
             response_text = get_deepseek_response(messages)
 
