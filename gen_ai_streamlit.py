@@ -1,460 +1,115 @@
-import time
 import uuid
 import streamlit as st
 from openai import OpenAI
 
-
-# ============================================================
-# PAGE CONFIGURATION
-# ============================================================
-
-st.set_page_config(
-    page_title="Pushkar's AI App",
-    page_icon="🤖",
-    layout="wide"
-)
-
-
-# ============================================================
-# NVIDIA API KEY
-# ============================================================
+st.set_page_config(page_title="Pushkar's AI App", page_icon="🤖", layout="wide")
 
 api_key = st.secrets.get("NVIDIA_API_KEY")
-
 if not api_key:
-    st.error(
-        "NVIDIA API key not found.\n\n"
-        "Please add NVIDIA_API_KEY to "
-        ".streamlit/secrets.toml"
-    )
+    st.error("Add NVIDIA_API_KEY to .streamlit/secrets.toml")
     st.stop()
-
-
-# ============================================================
-# NVIDIA CLIENT
-# ============================================================
 
 client = OpenAI(
     base_url="https://integrate.api.nvidia.com/v1",
     api_key=api_key,
-    timeout=60.0,
-    max_retries=0
 )
 
-
-# ============================================================
-# MODEL
-# ============================================================
-
-MODEL = "deepseek-ai/deepseek-v4.1-flash"
-
-
-# ============================================================
-# SESSION STATE
-# ============================================================
-
-if "chats" not in st.session_state:
-
-    first_chat_id = str(uuid.uuid4())[:8]
-
-    st.session_state.chats = {
-        first_chat_id: {
-            "title": "New Chat",
-            "messages": []
-        }
-    }
-
-    st.session_state.current_chat_id = first_chat_id
-
-
-if st.session_state.current_chat_id not in st.session_state.chats:
-
-    st.session_state.current_chat_id = list(
-        st.session_state.chats.keys()
-    )[0]
-
-
-# ============================================================
-# SIDEBAR
-# ============================================================
-
-with st.sidebar:
-
-    st.title("💬 Chat History")
-
-    # --------------------------------------------------------
-    # NEW CHAT
-    # --------------------------------------------------------
-
-    if st.button(
-        "➕ New Chat",
-        use_container_width=True
-    ):
-
-        new_chat_id = str(uuid.uuid4())[:8]
-
-        st.session_state.chats[new_chat_id] = {
-            "title": "New Chat",
-            "messages": []
-        }
-
-        st.session_state.current_chat_id = new_chat_id
-
-        st.rerun()
-
-    st.divider()
-
-    # --------------------------------------------------------
-    # CHAT HISTORY
-    # --------------------------------------------------------
-
-    for chat_id, chat_data in st.session_state.chats.items():
-
-        if chat_id == st.session_state.current_chat_id:
-            label = f"📌 {chat_data['title']}"
-        else:
-            label = f"💬 {chat_data['title']}"
-
-        if st.button(
-            label,
-            key=f"chat_{chat_id}",
-            use_container_width=True
-        ):
-
-            st.session_state.current_chat_id = chat_id
-
-            st.rerun()
-
-
-# ============================================================
-# ACTIVE CHAT
-# ============================================================
-
-active_chat = st.session_state.chats[
-    st.session_state.current_chat_id
+MODELS = [
+    "nvidia/nemotron-3-ultra-550b-a55b",
+    "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "deepseek-ai/deepseek-v4-pro-0813",
+    "moonshotai/kimi-k3",
+    "meta/llama-3.1-70b-instruct",
+    "meta/llama-3.1-8b-instruct",
+    "mistralai/mistral-7b-instruct-v0.3",
 ]
 
-messages = active_chat["messages"]
-
-
-# ============================================================
-# MAIN UI
-# ============================================================
-
-st.title("Welcome to Pushkar's AI App")
-
-
-# ============================================================
-# DISPLAY PREVIOUS MESSAGES
-# ============================================================
-
-for message in messages:
-
-    with st.chat_message(message["role"]):
-
-        st.markdown(message["content"])
-
-
-# ============================================================
-# DEEPSEEK FUNCTION
-# ============================================================
-
-def get_deepseek_response(chat_messages):
-
-    # --------------------------------------------------------
-    # API MESSAGES
-    # --------------------------------------------------------
-
-    api_messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are Pushkar's AI assistant. "
-                "Give clear, helpful and accurate answers. "
-                "Use simple language when explaining technical topics. "
-                "Do not unnecessarily explain your reasoning."
-            )
-        }
-    ]
-
-    for message in chat_messages:
-
-        api_messages.append(
-            {
-                "role": message["role"],
-                "content": message["content"]
-            }
-        )
-
-
-    # --------------------------------------------------------
-    # RETRY LOGIC
-    # --------------------------------------------------------
-
-    for attempt in range(3):
-
-        try:
-
-            response = client.chat.completions.create(
-
-                # Correct NVIDIA model
-                model=MODEL,
-
-                messages=api_messages,
-
-                # NVIDIA / DeepSeek recommended values
-                temperature=1.0,
-                top_p=0.95,
-
-                # Keep normal chatbot responses short
-                max_tokens=1024,
-
-                # IMPORTANT:
-                # Disable DeepSeek thinking
-                reasoning_effort="none",
-
-                # Normal non-streaming response
-                stream=False
-            )
-
-
-            # ------------------------------------------------
-            # GET RESPONSE
-            # ------------------------------------------------
-
-            answer = response.choices[0].message.content
-
-            if answer:
-
-                return answer
-
-            return "⚠️ DeepSeek returned an empty response."
-
-
-        # ----------------------------------------------------
-        # EXCEPTION
-        # ----------------------------------------------------
-
-        except Exception as e:
-
-            error = str(e)
-
-            print("\n" + "=" * 60)
-            print("NVIDIA API ERROR")
-            print("=" * 60)
-            print(error)
-            print("=" * 60 + "\n")
-
-
-            # ------------------------------------------------
-            # TIMEOUT
-            # ------------------------------------------------
-
-            if (
-                "timeout" in error.lower()
-                or "timed out" in error.lower()
-            ):
-
-                if attempt < 2:
-
-                    time.sleep(2)
-
-                    continue
-
-                return (
-                    "⚠️ **Request Timed Out**\n\n"
-                    "NVIDIA took too long to respond. "
-                    "Please try again."
-                )
-
-
-            # ------------------------------------------------
-            # SERVER ERROR
-            # ------------------------------------------------
-
-            if any(
-                code in error
-                for code in ["500", "502", "503", "504"]
-            ):
-
-                if attempt < 2:
-
-                    wait_time = 2 ** attempt
-
-                    time.sleep(wait_time)
-
-                    continue
-
-                return (
-                    "⚠️ **NVIDIA Server Busy**\n\n"
-                    "The NVIDIA server is temporarily "
-                    "unavailable. Please try again."
-                )
-
-
-            # ------------------------------------------------
-            # RATE LIMIT
-            # ------------------------------------------------
-
-            if (
-                "429" in error
-                or "rate limit" in error.lower()
-                or "too many requests" in error.lower()
-            ):
-
-                return (
-                    "⚠️ **Rate Limit Reached**\n\n"
-                    "The NVIDIA API rate limit has been "
-                    "reached. Please wait and try again."
-                )
-
-
-            # ------------------------------------------------
-            # AUTHENTICATION
-            # ------------------------------------------------
-
-            if (
-                "401" in error
-                or "unauthorized" in error.lower()
-                or "authentication" in error.lower()
-            ):
-
-                return (
-                    "⚠️ **API Key Error**\n\n"
-                    "Please check your NVIDIA API key "
-                    "in `.streamlit/secrets.toml`."
-                )
-
-
-            # ------------------------------------------------
-            # MODEL NOT FOUND / RETIRED
-            # ------------------------------------------------
-
-            if (
-                "404" in error
-                or "410" in error
-            ):
-
-                return (
-                    "⚠️ **Model Unavailable**\n\n"
-                    f"The NVIDIA model `{MODEL}` "
-                    "is unavailable or has been retired."
-                )
-
-
-            # ------------------------------------------------
-            # PAYMENT / AVAILABILITY
-            # ------------------------------------------------
-
-            if (
-                "402" in error
-                or "payment required" in error.lower()
-            ):
-
-                return (
-                    "⚠️ **Model Availability Error**\n\n"
-                    "The NVIDIA Free Endpoint may "
-                    "currently be unavailable."
-                )
-
-
-            # ------------------------------------------------
-            # VALIDATION ERROR
-            # ------------------------------------------------
-
-            if "422" in error:
-
-                return (
-                    "⚠️ **Request Validation Error**\n\n"
-                    f"```text\n{error}\n```"
-                )
-
-
-            # ------------------------------------------------
-            # OTHER ERROR
-            # ------------------------------------------------
-
-            return (
-                "⚠️ **NVIDIA API Error**\n\n"
-                f"```text\n{error}\n```"
-            )
-
-
-    return "⚠️ DeepSeek is temporarily unavailable."
-
-
-# ============================================================
-# CHAT INPUT
-# ============================================================
-
-prompt = st.chat_input("What's on your mind?")
-
-
-if prompt:
-
-    # ========================================================
-    # CREATE CHAT TITLE
-    # ========================================================
-
-    if active_chat["title"] == "New Chat":
-
-        title = prompt.strip()
-
-        if len(title) > 22:
-
-            title = title[:22] + "..."
-
-        active_chat["title"] = title
-
-
-    # ========================================================
-    # DISPLAY USER MESSAGE
-    # ========================================================
-
+# ---- session state ----
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+if "thread_id" not in st.session_state:
+    st.session_state.thread_id = str(uuid.uuid4())
+
+# ---- sidebar ----
+with st.sidebar:
+    st.title("⚙️ Settings")
+    model = st.selectbox("Model", MODELS, index=0)
+    temperature = st.slider("Temperature", 0.0, 1.0, 0.5, 0.05)
+    max_tokens = st.slider("Max tokens", 256, 8192, 2048, 256)
+    thinking = st.toggle("Thinking mode", value=False,
+                         help="Enable for reasoning models (Nemotron 3, DeepSeek V4)")
+    system_prompt = st.text_area(
+        "System prompt",
+        value="You are a helpful AI assistant.",
+        height=100,
+    )
+    if st.button("🗑️ Clear chat"):
+        st.session_state.messages = []
+        st.session_state.thread_id = str(uuid.uuid4())
+        st.rerun()
+    st.caption(f"Thread: `{st.session_state.thread_id[:8]}`")
+
+# ---- main ----
+st.title("🤖 Pushkar's AI App")
+st.caption(f"Powered by NVIDIA NIM · Model: `{model}`")
+
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+if prompt := st.chat_input("Ask me anything..."):
+
+    st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
-
         st.markdown(prompt)
 
-
-    # ========================================================
-    # SAVE USER MESSAGE
-    # ========================================================
-
-    messages.append(
-        {
-            "role": "user",
-            "content": prompt
-        }
-    )
-
-
-    # ========================================================
-    # DEEPSEEK RESPONSE
-    # ========================================================
+    api_messages = [{"role": "system", "content": system_prompt}] + [
+        {"role": m["role"], "content": m["content"]}
+        for m in st.session_state.messages
+    ]
 
     with st.chat_message("assistant"):
+        reasoning_box = st.empty()
+        placeholder = st.empty()
+        full_response = ""
+        reasoning_buffer = ""
 
-        with st.spinner("DeepSeek is responding..."):
+        try:
+            stream = client.chat.completions.create(
+                model=model,
+                messages=api_messages,
+                temperature=temperature,
+                top_p=0.95,
+                max_tokens=max_tokens,
+                stream=True,
+                extra_body={
+                    "chat_template_kwargs": {"thinking": thinking},
+                },
+            )
 
-            response_text = get_deepseek_response(messages)
+            for chunk in stream:
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
 
-        st.markdown(response_text)
+                rc = getattr(delta, "reasoning_content", None)
+                if rc:
+                    reasoning_buffer += rc
+                    reasoning_box.markdown(
+                        f"🧠 *Reasoning…*\n\n> {reasoning_buffer[-800:]}"
+                    )
 
+                if delta and delta.content:
+                    full_response += delta.content
+                    placeholder.markdown(full_response + "▌")
 
-    # ========================================================
-    # SAVE ASSISTANT RESPONSE
-    # ========================================================
+            reasoning_box.empty()
+            placeholder.markdown(full_response)
 
-    messages.append(
-        {
-            "role": "assistant",
-            "content": response_text
-        }
+        except Exception as e:
+            st.error(f"API error: {e}")
+            full_response = f"⚠️ Error: {e}"
+
+    st.session_state.messages.append(
+        {"role": "assistant", "content": full_response}
     )
-
-
-    # ========================================================
-    # REFRESH
-    # ========================================================
-
-    st.rerun()
